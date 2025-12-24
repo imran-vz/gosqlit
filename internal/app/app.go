@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/imran-vz/gosqlit/internal/config"
 	"github.com/imran-vz/gosqlit/internal/db"
+	"github.com/imran-vz/gosqlit/internal/debug"
 	"github.com/imran-vz/gosqlit/internal/ui/connected"
 	"github.com/imran-vz/gosqlit/internal/ui/explorer"
 	"github.com/imran-vz/gosqlit/internal/ui/modal"
@@ -46,6 +47,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Debug: Log ALL key messages at the top level
+		debug.Logf("TOP LEVEL key received: '%s' | Type: %T",
+			msg.String(), msg)
+
 		// Handle modal first
 		if a.activeModal != nil {
 			model, cmd := a.activeModal.Update(msg)
@@ -139,8 +144,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if tab.ConnID == msg.ConnID {
 				if msg.Err != nil {
 					fmt.Printf("Failed to load schemas: %v\n", msg.Err)
+					tab.View.StatusBar.SetError("Failed to load schemas: " + msg.Err.Error())
 				} else {
 					tab.View.Browser.SetSchemas(msg.Schemas)
+					tab.View.StatusBar.SetError("") // Clear the refresh message
 				}
 			}
 		}
@@ -284,7 +291,30 @@ func (a *App) updateConnected(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Handle global shortcuts first
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		debug.Logf("MAIN APP received key: '%s' | Type: %T",
+			keyMsg.String(), keyMsg)
+
 		switch keyMsg.String() {
+		case "ctrl+c":
+			// Handle ctrl+c early to allow quitting
+			return a, tea.Quit
+		case "ctrl+enter":
+		case "alt+enter":
+			// Execute query using Alt+Enter
+			debug.Logf("Executing query with key: %s", keyMsg.String())
+			sql := tab.View.Editor.GetContent()
+			if sql != "" {
+				tab.View.QueryRunning = true
+				tab.View.StatusBar.SetQueryRunning(true)
+				return a, func() tea.Msg {
+					return ExecuteQueryMsg{
+						ConnID: tab.ConnID,
+						SQL:    sql,
+						Offset: 0,
+					}
+				}
+			}
+			return a, nil
 		case "ctrl+w":
 			// Close current tab
 			a.tabs = append(a.tabs[:a.currentTabIdx], a.tabs[a.currentTabIdx+1:]...)
@@ -300,22 +330,6 @@ func (a *App) updateConnected(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.currentView = ViewExplorer
 			return a, nil
 
-		case "ctrl+enter":
-			// Execute query
-			sql := tab.View.Editor.GetContent()
-			if sql != "" {
-				tab.View.QueryRunning = true
-				tab.View.StatusBar.SetQueryRunning(true)
-				return a, func() tea.Msg {
-					return ExecuteQueryMsg{
-						ConnID: tab.ConnID,
-						SQL:    sql,
-						Offset: 0,
-					}
-				}
-			}
-			return a, nil
-
 		case "ctrl+k":
 			// Cancel query
 			if tab.View.QueryRunning && tab.View.CancelFunc != nil {
@@ -325,8 +339,9 @@ func (a *App) updateConnected(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 
-		case "f5":
+		case "f5", "ctrl+r":
 			// Refresh schemas
+			tab.View.StatusBar.SetError("Refreshing schemas...")
 			return a, a.loadSchemasCmd(tab.ConnID)
 		}
 
@@ -334,8 +349,10 @@ func (a *App) updateConnected(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if tab.View.FocusedPane == connected.PaneSchemaBrowser {
 			if keyMsg.String() == "enter" {
 				if schema, table, ok := tab.View.Browser.GetSelectedTable(); ok {
-					// Auto-generate SELECT query
-					sql := fmt.Sprintf("SELECT * FROM %s.%s LIMIT 100", schema, table)
+					// Auto-generate SELECT query with proper identifier quoting for PostgreSQL
+					// Quote identifiers to handle special characters, uppercase, and reserved words
+					sql := fmt.Sprintf(`SELECT * FROM "%s"."%s" LIMIT 100`, schema, table)
+					debug.Logf("Auto-generated query: %s", sql)
 					tab.View.Editor.SetContent(sql)
 					tab.View.FocusedPane = connected.PaneEditor
 					return a, nil
@@ -415,28 +432,44 @@ func (a *App) loadSchemasCmd(connID string) tea.Cmd {
 func (a *App) executeQueryCmd(msg ExecuteQueryMsg) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
+		debug.Logf("executeQueryCmd started | ConnID: %s | SQL length: %d | Offset: %d",
+			msg.ConnID, len(msg.SQL), msg.Offset)
+		debug.Logf("Executing SQL: %.200s", msg.SQL) // Log first 200 chars of SQL
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel() // Always call cancel to prevent context leak
 
 		// Store cancel func in tab for Ctrl+K cancellation
 		if a.currentTabIdx >= 0 && a.currentTabIdx < len(a.tabs) {
 			a.tabs[a.currentTabIdx].View.CancelFunc = cancel
+			debug.Logf("Cancel func stored for tab %d", a.currentTabIdx)
 		}
 
 		conn, ok := a.connections.GetConnection(msg.ConnID)
 		if !ok {
+			debug.Logf("Connection not found for ID: %s", msg.ConnID)
 			return QueryResultMsg{
 				ConnID: msg.ConnID,
 				Err:    fmt.Errorf("connection not found"),
 			}
 		}
 
-		result, err := conn.Query(ctx, msg.SQL, 1000, msg.Offset)
+		debug.Logf("Executing query on database...")
+		result, err := conn.Query(ctx, msg.SQL, 100, 0)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			debug.Logf("Query failed | elapsed: %v | error: %v", elapsed, err)
+		} else {
+			debug.Logf("Query succeeded | elapsed: %v | row count: %d | column count: %d",
+				elapsed, result.RowCount, len(result.Columns))
+		}
+
 		return QueryResultMsg{
 			ConnID:  msg.ConnID,
 			Result:  result,
 			Err:     err,
-			Elapsed: time.Since(start),
+			Elapsed: elapsed,
 		}
 	}
 }

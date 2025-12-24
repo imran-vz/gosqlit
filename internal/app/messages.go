@@ -59,9 +59,9 @@ type LoadMoreResultsMsg struct {
 }
 
 type ExportCSVMsg struct {
-	ConnID     string
-	FilePath   string
-	ExportAll  bool
+	ConnID    string
+	FilePath  string
+	ExportAll bool
 }
 
 // UI interactions
