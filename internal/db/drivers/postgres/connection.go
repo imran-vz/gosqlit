@@ -20,10 +20,11 @@ func (c *Connection) Query(ctx context.Context, sql string, limit int, offset in
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
+	// TODO: Implement pagination with proper query breakup
 	// Add LIMIT and OFFSET to query
-	paginatedSQL := fmt.Sprintf("%s LIMIT %d OFFSET %d", sql, limit, offset)
+	// paginatedSQL := fmt.Sprintf("%s", sql, limit, offset)
 
-	rows, err := c.pool.Query(ctx, paginatedSQL)
+	rows, err := c.pool.Query(ctx, sql)
 	if err != nil {
 		return db.QueryResult{}, fmt.Errorf("query failed: %w", err)
 	}
