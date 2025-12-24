@@ -2,3 +2,5 @@ gosqlit
 main
 .claude
 .vscode
+debug.log
+gosqlit-debug

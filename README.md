@@ -9,7 +9,7 @@ Terminal UI SQL client built with Bubble Tea. Multi-database support, encrypted 
 - **Schema browser**: Tree view with schemas → tables
 - **Query editor**: Multi-line SQL editor
 - **Results**: Paginated tables (1000 row limit, 50/page)
-- **Query control**: Execute (Ctrl+Enter), cancel (Ctrl+K)
+- **Query control**: Execute (Alt+Enter), cancel (Ctrl+K)
 - **Connections**: Save/edit/delete, multiple connections
 
 ## Install
@@ -26,7 +26,7 @@ go build -o gosqlit
 3. Select connection (Enter)
 4. Browse schemas (left panel, ↑↓←→)
 5. Click table → auto-generates SELECT
-6. Edit query, execute (Ctrl+Enter)
+6. Edit query, execute (Alt+Enter)
 
 ## Keyboard shortcuts
 
@@ -39,7 +39,7 @@ go build -o gosqlit
 
 **Connected view:**
 - `Tab` - Cycle focus (editor → results → browser)
-- `Ctrl+Enter` - Execute query
+- `Alt+Enter` - Execute query
 - `Ctrl+K` - Cancel running query
 - `Ctrl+W` - Close tab
 - `F5` - Refresh schemas
