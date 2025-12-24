@@ -44,11 +44,6 @@ func (sb *SchemaBrowser) View() string {
 		Bold(true).
 		Padding(0, 1)
 
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(1, 1)
-
 	title := titleStyle.Render("Schema")
 
 	content := ""
@@ -60,9 +55,7 @@ func (sb *SchemaBrowser) View() string {
 		content = sb.tree.View(sb.width-4, sb.height-6)
 	}
 
-	box := borderStyle.Width(sb.width - 2).Height(sb.height - 2).Render(title + "\n\n" + content)
-
-	return box
+	return title + "\n\n" + content
 }
 
 // SetSchemas populates tree with schemas

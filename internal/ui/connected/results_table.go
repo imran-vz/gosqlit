@@ -74,11 +74,6 @@ func (rt *ResultsTable) View() string {
 		Bold(true).
 		Padding(0, 1)
 
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(1, 1)
-
 	title := titleStyle.Render(fmt.Sprintf("Results (%d rows)", len(rt.rows)))
 
 	if len(rt.columns) == 0 {
@@ -86,7 +81,7 @@ func (rt *ResultsTable) View() string {
 			Foreground(lipgloss.Color("240")).
 			Render("No query executed yet")
 
-		return borderStyle.Width(rt.width - 2).Height(rt.height - 2).Render(title + "\n\n" + noData)
+		return title + "\n\n" + noData
 	}
 
 	// Calculate column widths
@@ -165,9 +160,7 @@ func (rt *ResultsTable) View() string {
 			Render(fmt.Sprintf("\nShowing %d-%d of %d rows", rt.scroll+1, end, len(rt.rows)))
 	}
 
-	box := borderStyle.Width(rt.width - 2).Height(rt.height - 2).Render(title + "\n\n" + content + footer)
-
-	return box
+	return title + "\n\n" + content + footer
 }
 
 // SetData sets table data
