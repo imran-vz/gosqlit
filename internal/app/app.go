@@ -298,9 +298,8 @@ func (a *App) updateConnected(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			// Handle ctrl+c early to allow quitting
 			return a, tea.Quit
-		case "ctrl+enter":
-		case "alt+enter":
-			// Execute query using Alt+Enter
+		case "ctrl+enter", "alt+enter":
+			// Execute query using Ctrl+Enter or Alt+Enter
 			debug.Logf("Executing query with key: %s", keyMsg.String())
 			sql := tab.View.Editor.GetContent()
 			if sql != "" {

@@ -4,6 +4,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -92,6 +93,22 @@ func (qe *QueryEditor) Update(msg tea.Msg) (*QueryEditor, tea.Cmd) {
 			qe.cursorCol = 0
 			debug.Logf("Line split at cursor | new total lines: %d | cursor: (%d,%d)",
 				len(qe.lines), qe.cursorRow, qe.cursorCol)
+		case "delete":
+			// Delete character at cursor position (forward delete)
+			line := qe.lines[qe.cursorRow]
+			if qe.cursorCol < len(line) {
+				// Delete character at cursor
+				qe.lines[qe.cursorRow] = line[:qe.cursorCol] + line[qe.cursorCol+1:]
+				debug.Logf("Delete: Character deleted | line length: %d | cursor: (%d,%d)",
+					len(qe.lines[qe.cursorRow]), qe.cursorRow, qe.cursorCol)
+			} else if qe.cursorRow < len(qe.lines)-1 {
+				// At end of line, merge with next line
+				nextLine := qe.lines[qe.cursorRow+1]
+				qe.lines[qe.cursorRow] = line + nextLine
+				qe.lines = append(qe.lines[:qe.cursorRow+1], qe.lines[qe.cursorRow+2:]...)
+				debug.Logf("Delete: Lines merged | new total lines: %d | cursor: (%d,%d)",
+					len(qe.lines), qe.cursorRow, qe.cursorCol)
+			}
 		case "backspace":
 			// Check for modifier key combinations
 			if keyMsg.String() == "ctrl+backspace" || keyMsg.String() == "cmd+backspace" {
@@ -154,14 +171,14 @@ func (qe *QueryEditor) Update(msg tea.Msg) (*QueryEditor, tea.Cmd) {
 				qe.cursorCol = 0
 				debug.Logf("Line clear: Line cleared | line length: %d | cursor: (%d,%d)", len(qe.lines[qe.cursorRow]), qe.cursorRow, qe.cursorCol)
 			}
-		case "ctrl+k":
-			// Ctrl+K - alternative to Ctrl+Backspace for clearing to end of line
+		case "ctrl+u":
+			// Ctrl+U - clear from cursor to end of line
 			currentLine := qe.lines[qe.cursorRow]
 			before := currentLine[:qe.cursorCol]
 
 			// Clear from cursor to end of line
 			qe.lines[qe.cursorRow] = before
-			debug.Logf("Ctrl+K: Line cleared to end | line length: %d | cursor: (%d,%d)", len(qe.lines[qe.cursorRow]), qe.cursorRow, qe.cursorCol)
+			debug.Logf("Ctrl+U: Line cleared to end | line length: %d | cursor: (%d,%d)", len(qe.lines[qe.cursorRow]), qe.cursorRow, qe.cursorCol)
 		case "ctrl+cmd+backspace", "ctrl+meta+backspace":
 			// Handle Cmd+Backspace (may be detected differently on different systems)
 			qe.lines[qe.cursorRow] = ""
@@ -188,38 +205,42 @@ func (qe *QueryEditor) Update(msg tea.Msg) (*QueryEditor, tea.Cmd) {
 			// Don't consume - simply return without handling
 			return qe, nil
 		case "ctrl+v", "ctrl+cmd+v", "ctrl+meta+v":
-			// Handle paste functionality
-			go func() {
-				clipboard := getClipboardContent()
-				debug.Logf(" attempting paste from clipboard length: %d", len(clipboard))
-				if clipboard != "" {
-					// Clean clipboard content - remove brackets and normalize
-					cleaned := cleanClipboardContent(clipboard)
-					debug.Logf("Cleaned clipboard content: %.100s", cleaned)
+			// Handle paste functionality synchronously to avoid race conditions
+			clipboard := getClipboardContent()
+			debug.Logf("Attempting paste from clipboard length: %d", len(clipboard))
+			if clipboard != "" {
+				// Clean clipboard content - remove brackets and normalize
+				cleaned := cleanClipboardContent(clipboard)
+				debug.Logf("Cleaned clipboard content: %.100s", cleaned)
 
-					// Insert the cleaned content at cursor position
-					currentLine := qe.lines[qe.cursorRow]
-					before := currentLine[:qe.cursorCol]
-					after := currentLine[qe.cursorCol:]
+				// Insert the cleaned content at cursor position
+				currentLine := qe.lines[qe.cursorRow]
+				before := currentLine[:qe.cursorCol]
+				after := currentLine[qe.cursorCol:]
 
-					// Split newlines into multiple lines
-					pasteLines := strings.Split(cleaned, "\n")
-					if len(pasteLines) == 1 {
-						// Single line paste
-						qe.lines[qe.cursorRow] = before + pasteLines[0] + after
-						qe.cursorCol += len(pasteLines[0])
-						debug.Logf("Single line pasted | line length: %d | cursor: (%d,%d)", len(qe.lines[qe.cursorRow]), qe.cursorRow, qe.cursorCol)
-					} else {
-						// Multi-line paste - replace current line and add new lines
-						qe.lines[qe.cursorRow] = before + pasteLines[0]
-						newLines := append(pasteLines[1:], after)
-						qe.lines = append(qe.lines[:qe.cursorRow+1], append(newLines, qe.lines[qe.cursorRow+1:]...)...)
-						qe.cursorRow += len(pasteLines) - 1
-						qe.cursorCol = len(pasteLines[len(pasteLines)-1])
-						debug.Logf("Multi-line pasted | new total lines: %d | cursor: (%d,%d)", len(qe.lines), qe.cursorRow, qe.cursorCol)
+				// Split newlines into multiple lines
+				pasteLines := strings.Split(cleaned, "\n")
+				if len(pasteLines) == 1 {
+					// Single line paste
+					qe.lines[qe.cursorRow] = before + pasteLines[0] + after
+					qe.cursorCol += len(pasteLines[0])
+					debug.Logf("Single line pasted | line length: %d | cursor: (%d,%d)", len(qe.lines[qe.cursorRow]), qe.cursorRow, qe.cursorCol)
+				} else {
+					// Multi-line paste - replace current line and add new lines
+					qe.lines[qe.cursorRow] = before + pasteLines[0]
+					// Build new lines: middle paste lines + last paste line with 'after' appended
+					lastPasteLineWithAfter := pasteLines[len(pasteLines)-1] + after
+					newLines := make([]string, 0, len(pasteLines)-1)
+					for i := 1; i < len(pasteLines)-1; i++ {
+						newLines = append(newLines, pasteLines[i])
 					}
+					newLines = append(newLines, lastPasteLineWithAfter)
+					qe.lines = append(qe.lines[:qe.cursorRow+1], append(newLines, qe.lines[qe.cursorRow+1:]...)...)
+					qe.cursorRow += len(pasteLines) - 1
+					qe.cursorCol = len(pasteLines[len(pasteLines)-1])
+					debug.Logf("Multi-line pasted | new total lines: %d | cursor: (%d,%d)", len(qe.lines), qe.cursorRow, qe.cursorCol)
 				}
-			}()
+			}
 		default:
 			// Insert character
 			if len(keyMsg.String()) == 1 {
@@ -267,7 +288,7 @@ func (qe *QueryEditor) View() string {
 	}
 
 	for i := qe.scroll; i < end; i++ {
-		lineNum := lineNumStyle.Render(string(rune(i + 1)))
+		lineNum := lineNumStyle.Render(strconv.Itoa(i + 1))
 		lineContent := qe.lines[i]
 
 		// Show cursor
@@ -286,7 +307,7 @@ func (qe *QueryEditor) View() string {
 	helpText := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Render("\nAlt+Enter: Execute  Tab: Switch pane  F5/Ctrl+R: Refresh schemas\n" +
-			"Ctrl+K: Clear to end  Ctrl+V: Paste  Alt+Backspace: Clear line")
+			"Ctrl+U: Clear to end  Ctrl+V: Paste  Alt+Backspace: Clear line")
 
 	return title + "\n\n" + content + helpText
 }
